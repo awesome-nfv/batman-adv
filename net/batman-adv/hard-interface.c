@@ -504,7 +504,7 @@ int batadv_hardif_enable_interface(struct batadv_hard_iface *hard_iface,
 	if (hard_iface->if_status != BATADV_IF_NOT_IN_USE)
 		goto out;
 
-	kref_get(&hard_iface->refcount);
+	kref_get(&hard_iface->refcount); // TODO to what does this belong?
 
 	soft_iface = dev_get_by_name(net, iface_name);
 
