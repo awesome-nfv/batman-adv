@@ -736,6 +736,7 @@ bool batadv_tt_local_add(struct net_device *soft_iface, const u8 *addr,
 	kref_init(&tt_local->common.refcount);
 	tt_local->last_seen = jiffies;
 	tt_local->common.added_at = tt_local->last_seen;
+	/* TODO make kref_get explicit */
 	tt_local->vlan = vlan;
 
 	/* the batman interface mac and multicast addresses should never be
