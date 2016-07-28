@@ -1485,6 +1485,7 @@ static bool batadv_nc_skb_add_to_path(struct sk_buff *skb,
 	nc_packet->timestamp = jiffies;
 	nc_packet->packet_id = packet_id;
 	nc_packet->skb = skb;
+	/* TODO fix missing kref_get for neigh_node */
 	nc_packet->neigh_node = neigh_node;
 	nc_packet->nc_path = nc_path;
 
