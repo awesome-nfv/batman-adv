@@ -646,6 +646,7 @@ batadv_neigh_node_create(struct batadv_orig_node *orig_node,
 	kref_get(&hard_iface->refcount);
 	ether_addr_copy(neigh_node->addr, neigh_addr);
 	neigh_node->if_incoming = hard_iface;
+	/* TODO missing kref_get - WARNING would create reference cycle */
 	neigh_node->orig_node = orig_node;
 	neigh_node->last_seen = jiffies;
 

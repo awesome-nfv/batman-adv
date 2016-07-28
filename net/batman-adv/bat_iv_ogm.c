@@ -354,6 +354,7 @@ batadv_iv_ogm_neigh_new(struct batadv_hard_iface *hard_iface,
 	if (!neigh_node)
 		goto out;
 
+	/* TODO missing drop of old kref and add of new one */
 	neigh_node->orig_node = orig_neigh;
 
 out:
