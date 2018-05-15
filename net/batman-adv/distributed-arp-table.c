@@ -29,6 +29,7 @@
 #include <linux/if_ether.h>
 #include <linux/if_vlan.h>
 #include <linux/in.h>
+#include <linux/ip.h>
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/kref.h>
@@ -42,9 +43,11 @@
 #include <linux/spinlock.h>
 #include <linux/stddef.h>
 #include <linux/string.h>
+#include <linux/udp.h>
 #include <linux/workqueue.h>
 #include <net/arp.h>
 #include <net/genetlink.h>
+#include <net/ip.h>
 #include <net/netlink.h>
 #include <net/sock.h>
 #include <uapi/linux/batman_adv.h>
@@ -1433,6 +1436,298 @@ out:
 		batadv_dat_entry_put(dat_entry);
 	/* if dropped == false -> deliver to the interface */
 	return dropped;
+}
+
+/**
+ * batadv_dat_check_dhcp_ipudp() - check skb for IP+UDP headers valid for DHCP
+ * @skb: the packet to check
+ *
+ * Checks whether the given skb has an IP and UDP header valid for a DHCP
+ * message from a DHCP server.
+ *
+ * Return: True if valid, false otherwise.
+ */
+static bool batadv_dat_check_dhcp_ipudp(struct sk_buff *skb)
+{
+	struct iphdr *iphdr, _iphdr;
+	struct udphdr *udphdr, _udphdr;
+	unsigned int offset = skb_network_offset(skb);
+
+	iphdr = skb_header_pointer(skb, offset, sizeof(_iphdr), &_iphdr);
+	if (!iphdr || iphdr->version != 4 || ip_hdrlen(skb) < sizeof(_iphdr))
+		return false;
+
+	if (iphdr->protocol != IPPROTO_UDP)
+		return false;
+
+	offset += ip_hdrlen(skb);
+	skb_set_transport_header(skb, offset);
+
+	udphdr = skb_header_pointer(skb, offset, sizeof(_udphdr), &_udphdr);
+	if (!udphdr || udphdr->source != htons(67))
+		return false;
+
+	return true;
+}
+
+/**
+ * batadv_dat_check_dhcp() - examine packet for valid DHCP message
+ * @skb: the packet to check
+ * @proto: ethernet protocol hint (behind a potential vlan)
+ *
+ * Checks whether the given skb is a valid DHCP packet.
+ *
+ * Caller needs to ensure that the skb network header is set correctly.
+ *
+ * Return: If skb is a valid DHCP packet, then returns its op code
+ * (e.g. BOOTREPLY vs. BOOTREQUEST). Otherwise returns -EINVAL.
+ */
+static int batadv_dat_check_dhcp(struct sk_buff *skb, __be16 proto)
+{
+	u8 *op, _op;
+	u8 *htype, _htype;
+	u8 *hlen, _hlen;
+	__be32 *magic, _magic;
+	unsigned int dhcp_offset;
+	unsigned int offset;
+
+	if (proto != htons(ETH_P_IP))
+		return -EINVAL;
+
+	if (!batadv_dat_check_dhcp_ipudp(skb))
+		return -EINVAL;
+
+	dhcp_offset = skb_transport_offset(skb) + sizeof(struct udphdr);
+	if (skb->len < dhcp_offset + sizeof(struct batadv_dhcp_packet))
+		return -EINVAL;
+
+	offset = dhcp_offset + offsetof(struct batadv_dhcp_packet, op);
+
+	op = skb_header_pointer(skb, offset, sizeof(_op), &_op);
+	if (!op)
+		return -EINVAL;
+
+	offset = dhcp_offset + offsetof(struct batadv_dhcp_packet, htype);
+
+	htype = skb_header_pointer(skb, offset, sizeof(_htype), &_htype);
+	if (!htype || *htype != BATADV_HTYPE_ETHERNET)
+		return -EINVAL;
+
+	offset = dhcp_offset + offsetof(struct batadv_dhcp_packet, hlen);
+
+	hlen = skb_header_pointer(skb, offset, sizeof(_hlen), &_hlen);
+	if (!hlen || *hlen != ETH_ALEN)
+		return -EINVAL;
+
+	offset = dhcp_offset + offsetof(struct batadv_dhcp_packet, magic);
+
+	magic = skb_header_pointer(skb, offset, sizeof(_magic), &_magic);
+	if (!magic || *magic != htonl(BATADV_DHCP_MAGIC))
+		return -EINVAL;
+
+	return *op;
+}
+
+/**
+ * batadv_dat_get_dhcp_message_type() - get message type of a DHCP packet
+ * @skb: the DHCP packet to parse
+ *
+ * Iterates over the DHCP options of the given DHCP packet to find a
+ * DHCP Message Type option and parse it.
+ *
+ * Caller needs to ensure that the given skb is a valid DHCP packet and
+ * that the skb transport header is set correctly.
+ *
+ * Return: The found DHCP message type value, if found. -EINVAL otherwise.
+ */
+static int batadv_dat_get_dhcp_message_type(struct sk_buff *skb)
+{
+	unsigned int offset = skb_transport_offset(skb) + sizeof(struct udphdr);
+	u8 *type, _type;
+	struct {
+		u8 type;
+		u8 len;
+	} *tl, _tl;
+
+	offset += sizeof(struct batadv_dhcp_packet);
+
+	while ((tl = skb_header_pointer(skb, offset, sizeof(_tl), &_tl))) {
+		if (tl->type == BATADV_DHCP_OPT_MSG_TYPE)
+			break;
+
+		if (tl->type == BATADV_DHCP_OPT_END)
+			break;
+
+		if (tl->type == BATADV_DHCP_OPT_PAD)
+			offset++;
+		else
+			offset += tl->len + sizeof(_tl);
+	}
+
+	/* Option Overload Code not supported */
+	if (!tl || tl->type != BATADV_DHCP_OPT_MSG_TYPE ||
+	    tl->len != sizeof(_type))
+		return -EINVAL;
+
+	offset += sizeof(_tl);
+
+	type = skb_header_pointer(skb, offset, sizeof(_type), &_type);
+	if (!type)
+		return -EINVAL;
+
+	return *type;
+}
+
+/**
+ * batadv_dat_get_dhcp_yiaddr() - get yiaddr from a DHCP packet
+ * @skb: the DHCP packet to parse
+ * @buffer: a buffer to store the yiaddr in (if necessary / skb is non-linear)
+ *
+ * Caller needs to ensure that the given skb is a valid DHCP packet and
+ * that the skb transport header is set correctly.
+ *
+ * Return: A safely accessible "Your IP Address" field from the provided DHCP
+ * packet.
+ */
+static __be32 *batadv_dat_dhcp_get_yiaddr(struct sk_buff *skb, __be32 *buffer)
+{
+	unsigned int offset = skb_transport_offset(skb) + sizeof(struct udphdr);
+	unsigned int len = sizeof(((struct batadv_dhcp_packet *)0)->yiaddr);
+
+	offset += offsetof(struct batadv_dhcp_packet, yiaddr);
+
+	return skb_header_pointer(skb, offset, len, buffer);
+}
+
+/**
+ * batadv_dat_get_dhcp_chaddr() - get chaddr from a DHCP packet
+ * @skb: the DHCP packet to parse
+ * @buffer: a buffer to store the chaddr in (if necessary / skb is non-linear)
+ *
+ * Caller needs to ensure that the given skb is a valid DHCP packet and
+ * that the skb transport header is set correctly.
+ *
+ * Return: A safely accessible "Client Hardware Address" field from the provided
+ * DHCP packet.
+ */
+static u8 *batadv_dat_get_dhcp_chaddr(struct sk_buff *skb, u8 *buffer)
+{
+	unsigned int offset = skb_transport_offset(skb) + sizeof(struct udphdr);
+	unsigned int len = sizeof(((struct batadv_dhcp_packet *)0)->chaddr);
+
+	offset += offsetof(struct batadv_dhcp_packet, chaddr);
+
+	return skb_header_pointer(skb, offset, len, buffer);
+}
+
+/**
+ * batadv_dat_put_pairs() - puts two MAC/IP pairs into the DHT and DAT cache
+ * @bat_priv: the bat priv with all the soft interface information
+ * @hw_src: first value of DHT and ARP sender MAC
+ * @ip_src: first key of DHT and ARP sender IP
+ * @hw_dst: second value of DHT and ARP target MAC
+ * @ip_dst: second key of DHT and ARP target IP
+ * @vid: VLAN identifier
+ *
+ * First checks whether the given MAC/IP pairs are suitable for DAT. If so, adds
+ * them to the local DAT cache and propagates them further into the DHT.
+ *
+ * For the DHT propagation, hw_src/ip_src will appear as the ARP Reply
+ * transmitter (and hw_dst/ip_dst as the target).
+ *
+ * Return: True on success, false otherwise.
+ */
+static bool batadv_dat_put_pairs(struct batadv_priv *bat_priv, u8 *hw_src,
+				 __be32 ip_src, u8 *hw_dst, __be32 ip_dst,
+				 unsigned short vid)
+{
+	struct sk_buff *skb;
+	int hdr_size;
+	u16 type;
+	int ret = false;
+
+	skb = batadv_dat_arp_create_reply(bat_priv, ip_src, ip_dst, hw_src,
+					  hw_dst, vid);
+	if (!skb)
+		return false;
+
+	/* Check for validity of provided addresses */
+	skb_set_network_header(skb, ETH_HLEN);
+	hdr_size = skb_network_offset(skb) - ETH_HLEN;
+	type = batadv_arp_get_type(bat_priv, skb, hdr_size);
+	if (type != ARPOP_REPLY)
+		goto err_skip_commit;
+
+	batadv_dat_entry_add(bat_priv, ip_src, hw_src, vid);
+	batadv_dat_entry_add(bat_priv, ip_dst, hw_dst, vid);
+
+	batadv_dat_send_data(bat_priv, skb, ip_src, vid, BATADV_P_DAT_DHT_PUT);
+	batadv_dat_send_data(bat_priv, skb, ip_dst, vid, BATADV_P_DAT_DHT_PUT);
+
+	ret = true;
+
+err_skip_commit:
+	dev_kfree_skb(skb);
+	return ret;
+}
+
+/**
+ * batadv_dat_snoop_outgoing_dhcp_ack() - snoop DHCPACK and fill DAT with it
+ * @bat_priv: the bat priv with all the soft interface information
+ * @skb: the packet to snoop
+ * @proto: ethernet protocol hint (behind a potential vlan)
+ * @vid: VLAN identifier
+ *
+ * This function first checks whether the given skb is a valid DHCPACK. If
+ * so then its source MAC and IP as well as its DHCP Client Hardware Address
+ * field and DHCP Your IP Address field are added to the local DAT cache and
+ * propagated into the DHT.
+ *
+ * Caller needs to ensure that the skb mac and network headers are set
+ * correctly.
+ */
+void batadv_dat_snoop_outgoing_dhcp_ack(struct batadv_priv *bat_priv,
+					struct sk_buff *skb,
+					__be16 proto,
+					unsigned short vid)
+{
+	int type;
+	u8 *chaddr, _chaddr[ETH_ALEN];
+	__be32 *yiaddr, _yiaddr;
+
+	if (!atomic_read(&bat_priv->distributed_arp_table))
+		return;
+
+	if (batadv_dat_check_dhcp(skb, proto) != BATADV_BOOTREPLY)
+		return;
+
+	type = batadv_dat_get_dhcp_message_type(skb);
+	if (type != BATADV_DHCPACK)
+		return;
+
+	yiaddr = batadv_dat_dhcp_get_yiaddr(skb, &_yiaddr);
+	if (!yiaddr)
+		return;
+
+	chaddr = batadv_dat_get_dhcp_chaddr(skb, _chaddr);
+	if (!chaddr)
+		return;
+
+	/* ARP sender MAC + IP -> DHCP Client (chaddr+yiaddr),
+	 * ARP target MAC + IP -> DHCP Server (ethhdr/iphdr sources)
+	 */
+	if (!batadv_dat_put_pairs(bat_priv, chaddr, *yiaddr,
+				  eth_hdr(skb)->h_source, ip_hdr(skb)->saddr,
+				  vid))
+		return;
+
+	batadv_dbg(BATADV_DBG_DAT, bat_priv,
+		   "Snooped from DHCPACK (server-side): %pI4, %pM (vid: %i)\n",
+		   &ip_hdr(skb)->saddr, eth_hdr(skb)->h_source,
+		   batadv_print_vid(vid));
+	batadv_dbg(BATADV_DBG_DAT, bat_priv,
+		   "Snooped from DHCPACK (client-side): %pI4, %pM (vid: %i)\n",
+		   yiaddr, chaddr, batadv_print_vid(vid));
 }
 
 /**

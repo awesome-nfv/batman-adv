@@ -46,6 +46,10 @@ void batadv_dat_snoop_outgoing_arp_reply(struct batadv_priv *bat_priv,
 					 struct sk_buff *skb);
 bool batadv_dat_snoop_incoming_arp_reply(struct batadv_priv *bat_priv,
 					 struct sk_buff *skb, int hdr_size);
+void batadv_dat_snoop_outgoing_dhcp_ack(struct batadv_priv *bat_priv,
+					struct sk_buff *skb,
+					__be16 proto,
+					unsigned short vid);
 bool batadv_dat_drop_broadcast_packet(struct batadv_priv *bat_priv,
 				      struct batadv_forw_packet *forw_packet);
 
@@ -138,6 +142,13 @@ batadv_dat_snoop_incoming_arp_reply(struct batadv_priv *bat_priv,
 				    struct sk_buff *skb, int hdr_size)
 {
 	return false;
+}
+
+static inline void
+batadv_dat_snoop_outgoing_dhcp_ack(struct batadv_priv *bat_priv,
+				   struct sk_buff *skb, __be16 proto,
+				   unsigned short vid)
+{
 }
 
 static inline bool

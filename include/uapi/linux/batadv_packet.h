@@ -630,6 +630,46 @@ struct batadv_tvlv_mcast_data {
 	__u8 reserved[3];
 };
 
+enum batadv_bootpop {
+	BATADV_BOOTREPLY	= 2,
+};
+
+enum batadv_boothtype {
+	BATADV_HTYPE_ETHERNET	= 1,
+};
+
+enum batadv_dhcpoptioncode {
+	BATADV_DHCP_OPT_PAD		= 0,
+	BATADV_DHCP_OPT_MSG_TYPE	= 53,
+	BATADV_DHCP_OPT_END		= 255,
+};
+
+enum batadv_dhcptype {
+	BATADV_DHCPACK		= 5,
+};
+
+/* { 99, 130, 83, 99 } */
+#define BATADV_DHCP_MAGIC 1669485411
+
+struct batadv_dhcp_packet {
+	__u8 op;
+	__u8 htype;
+	__u8 hlen;
+	__u8 hops;
+	__be32 xid;
+	__be16 secs;
+	__be16 flags;
+	__be32 ciaddr;
+	__be32 yiaddr;
+	__be32 siaddr;
+	__be32 giaddr;
+	__u8 chaddr[16];
+	__u8 sname[64];
+	__u8 file[128];
+	__be32 magic;
+	__u8 options[0];
+};
+
 #pragma pack()
 
 #endif /* _UAPI_LINUX_BATADV_PACKET_H_ */
