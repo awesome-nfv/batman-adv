@@ -314,7 +314,7 @@ int batadv_debugfs_add_hardif(struct batadv_hard_iface *hard_iface)
 	hard_iface->debug_dir = debugfs_create_dir(hard_iface->net_dev->name,
 						   batadv_debugfs);
 	if (!hard_iface->debug_dir)
-		goto out;
+		return 0;
 
 	for (bat_debug = batadv_hardif_debuginfos; *bat_debug; ++bat_debug) {
 		file = debugfs_create_file(((*bat_debug)->attr).name,
