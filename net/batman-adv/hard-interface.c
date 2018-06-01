@@ -125,14 +125,20 @@ static bool batadv_is_on_batman_iface(const struct net_device *net_dev)
 	struct net *net = dev_net(net_dev);
 	bool ret;
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	/* check if this is a batman-adv mesh interface */
 	if (batadv_softif_is_valid(net_dev))
 		return true;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	/* no more parents..stop recursion */
 	if (dev_get_iflink(net_dev) == 0 ||
 	    dev_get_iflink(net_dev) == net_dev->ifindex)
 		return false;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	/* recurse over the parent device */
 	parent_dev = __dev_get_by_index(net, dev_get_iflink(net_dev));
@@ -140,28 +146,45 @@ static bool batadv_is_on_batman_iface(const struct net_device *net_dev)
 	if (WARN(!parent_dev, "Cannot find parent device"))
 		return false;
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	if (batadv_mutual_parents(net_dev, parent_dev))
 		return false;
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	ret = batadv_is_on_batman_iface(parent_dev);
+
+	printk("%s:%u %s %d\n", __func__, __LINE__, net_dev->name, ret);
 
 	return ret;
 }
 
 static bool batadv_is_valid_iface(const struct net_device *net_dev)
 {
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+	
 	if (net_dev->flags & IFF_LOOPBACK)
 		return false;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	if (net_dev->type != ARPHRD_ETHER)
 		return false;
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	if (net_dev->addr_len != ETH_ALEN)
 		return false;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	/* no batman over batman */
 	if (batadv_is_on_batman_iface(net_dev))
 		return false;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	return true;
 }
@@ -652,8 +675,12 @@ batadv_hardif_add_interface(struct net_device *net_dev)
 
 	ASSERT_RTNL();
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	if (!batadv_is_valid_iface(net_dev))
 		goto out;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	dev_hold(net_dev);
 
@@ -661,9 +688,13 @@ batadv_hardif_add_interface(struct net_device *net_dev)
 	if (!hard_iface)
 		goto release_dev;
 
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
+
 	ret = batadv_sysfs_add_hardif(&hard_iface->hardif_obj, net_dev);
 	if (ret)
 		goto free_if;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	hard_iface->if_num = -1;
 	hard_iface->net_dev = net_dev;
@@ -673,6 +704,8 @@ batadv_hardif_add_interface(struct net_device *net_dev)
 	ret = batadv_debugfs_add_hardif(hard_iface);
 	if (ret)
 		goto free_sysfs;
+
+	printk("%s:%u %s\n", __func__, __LINE__, net_dev->name);
 
 	INIT_LIST_HEAD(&hard_iface->list);
 	INIT_HLIST_HEAD(&hard_iface->neigh_list);

@@ -1021,15 +1021,22 @@ int batadv_sysfs_add_hardif(struct kobject **hardif_obj, struct net_device *dev)
 	*hardif_obj = kobject_create_and_add(BATADV_SYSFS_IF_BAT_SUBDIR,
 					     hardif_kobject);
 
+
+	printk("%s:%u %s\n", __func__, __LINE__, dev->name);
 	if (!*hardif_obj) {
 		batadv_err(dev, "Can't add sysfs directory: %s/%s\n", dev->name,
 			   BATADV_SYSFS_IF_BAT_SUBDIR);
 		goto out;
 	}
 
+	printk("%s:%u %s\n", __func__, __LINE__, dev->name);
+
 	for (bat_attr = batadv_batman_attrs; *bat_attr; ++bat_attr) {
+
+		printk("%s:%u %s\n", __func__, __LINE__, dev->name);
 		err = sysfs_create_file(*hardif_obj, &((*bat_attr)->attr));
 		if (err) {
+			printk("%s:%u %s\n", __func__, __LINE__, dev->name);
 			batadv_err(dev, "Can't add sysfs file: %s/%s/%s\n",
 				   dev->name, BATADV_SYSFS_IF_BAT_SUBDIR,
 				   ((*bat_attr)->attr).name);

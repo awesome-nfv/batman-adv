@@ -308,13 +308,19 @@ int batadv_debugfs_add_hardif(struct batadv_hard_iface *hard_iface)
 	struct batadv_debuginfo **bat_debug;
 	struct dentry *file;
 
+
+	printk("%s:%u %s\n", __func__, __LINE__, hard_iface->net_dev->name);
 	if (!batadv_debugfs)
 		goto out;
+
+	printk("%s:%u %s\n", __func__, __LINE__, hard_iface->net_dev->name);
 
 	hard_iface->debug_dir = debugfs_create_dir(hard_iface->net_dev->name,
 						   batadv_debugfs);
 	if (!hard_iface->debug_dir)
 		goto out;
+
+	printk("%s:%u %s\n", __func__, __LINE__, hard_iface->net_dev->name);
 
 	for (bat_debug = batadv_hardif_debuginfos; *bat_debug; ++bat_debug) {
 		file = debugfs_create_file(((*bat_debug)->attr).name,
@@ -322,8 +328,10 @@ int batadv_debugfs_add_hardif(struct batadv_hard_iface *hard_iface)
 					   hard_iface->debug_dir,
 					   hard_iface->net_dev,
 					   &(*bat_debug)->fops);
-		if (!file)
+		if (!file) {
+			printk("%s:%u %s\n", __func__, __LINE__, hard_iface->net_dev->name);
 			goto rem_attr;
+		}
 	}
 
 	return 0;
