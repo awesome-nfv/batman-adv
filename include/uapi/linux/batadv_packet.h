@@ -351,10 +351,12 @@ struct batadv_icmp_tp_packet {
  * enum batadv_icmp_tp_subtype - ICMP TP Meter packet subtypes
  * @BATADV_TP_MSG: Msg from sender to receiver
  * @BATADV_TP_ACK: acknowledgment from receiver to sender
+ * @BATADV_TP_MSG_LINK: Msg from sender to receiver used for link test (one-hop)
  */
 enum batadv_icmp_tp_subtype {
 	BATADV_TP_MSG	= 0,
 	BATADV_TP_ACK,
+	BATADV_TP_MSG_LINK,
 };
 
 #define BATADV_RR_LEN 16

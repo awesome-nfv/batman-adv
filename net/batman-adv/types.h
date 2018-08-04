@@ -1455,6 +1455,9 @@ struct batadv_tp_vars {
 
 	/** @rcu: struct used for freeing in an RCU-safe manner */
 	struct rcu_head rcu;
+
+	/** @hardif_neigh: in case of LINK test, represents the other-end */
+	struct batadv_hardif_neigh_node *hardif_neigh;
 };
 
 /**

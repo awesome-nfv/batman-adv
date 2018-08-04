@@ -223,12 +223,14 @@ bool batadv_check_management_packet(struct sk_buff *skb,
 /**
  * batadv_recv_my_icmp_packet() - receive an icmp packet locally
  * @bat_priv: the bat priv with all the soft interface information
+ * @recv_if: interface that the skb is received on
  * @skb: icmp packet to process
  *
  * Return: NET_RX_SUCCESS if the packet has been consumed or NET_RX_DROP
  * otherwise.
  */
 static int batadv_recv_my_icmp_packet(struct batadv_priv *bat_priv,
+				      struct batadv_hard_iface *recv_if,
 				      struct sk_buff *skb)
 {
 	struct batadv_hard_iface *primary_if = NULL;
@@ -281,7 +283,7 @@ static int batadv_recv_my_icmp_packet(struct batadv_priv *bat_priv,
 		if (!pskb_may_pull(skb, sizeof(struct batadv_icmp_tp_packet)))
 			goto out;
 
-		batadv_tp_meter_recv(bat_priv, skb);
+		batadv_tp_meter_recv(bat_priv, recv_if, skb);
 		ret = NET_RX_SUCCESS;
 		/* skb was consumed */
 		skb = NULL;
@@ -418,7 +420,7 @@ int batadv_recv_icmp_packet(struct sk_buff *skb,
 
 	/* packet for me */
 	if (batadv_is_my_mac(bat_priv, icmph->dst))
-		return batadv_recv_my_icmp_packet(bat_priv, skb);
+		return batadv_recv_my_icmp_packet(bat_priv, recv_if, skb);
 
 	/* TTL exceeded */
 	if (icmph->ttl < 2)
