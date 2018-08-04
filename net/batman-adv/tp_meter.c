@@ -939,21 +939,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	session_cookie = batadv_tp_session_cookie(session_id, icmp_uid);
 	*cookie = session_cookie;
 
-	/* look for an already existing test towards this node */
-	spin_lock_bh(&bat_priv->tp_list_lock);
-	tp_vars = batadv_tp_list_find(bat_priv, dst);
-	if (tp_vars) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
-		batadv_tp_vars_put(tp_vars);
-		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
-			   "Meter: test to or from the same node already ongoing, aborting\n");
-		batadv_tp_batctl_error_notify(BATADV_TP_REASON_ALREADY_ONGOING,
-					      dst, bat_priv, session_cookie);
-		return;
-	}
-
 	if (!atomic_add_unless(&bat_priv->tp_num, 1, BATADV_TP_MAX_NUM)) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
 		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 			   "Meter: too many ongoing sessions, aborting (SEND)\n");
 		batadv_tp_batctl_error_notify(BATADV_TP_REASON_TOO_MANY, dst,
@@ -963,10 +949,6 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 
 	tp_vars = kmalloc(sizeof(*tp_vars), GFP_ATOMIC);
 	if (!tp_vars) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
-		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
-			   "Meter: %s cannot allocate list elements\n",
-			   __func__);
 		batadv_tp_batctl_error_notify(BATADV_TP_REASON_MEMORY_ERROR,
 					      dst, bat_priv, session_cookie);
 		return;
@@ -1021,6 +1003,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	spin_lock_init(&tp_vars->prerandom_lock);
 
 	kref_get(&tp_vars->refcount);
+	spin_lock_bh(&bat_priv->tp_list_lock);
 	hlist_add_head_rcu(&tp_vars->list, &bat_priv->tp_list);
 	spin_unlock_bh(&bat_priv->tp_list_lock);
 
