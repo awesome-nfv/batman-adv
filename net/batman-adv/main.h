@@ -137,9 +137,11 @@
 #define BATADV_NC_NODE_TIMEOUT 10000 /* Milliseconds */
 
 /**
- * BATADV_TP_MAX_NUM - maximum number of simultaneously active tp sessions
+ * BATADV_TP_MAX_NUM_QUEUE - maximum number of queued (outgoing) tp sessions
+ * BATADV_TP_MAX_NUM_RECV - maximum number of simultaneous receiving streams
  */
-#define BATADV_TP_MAX_NUM 5
+#define BATADV_TP_MAX_NUM_QUEUE 10
+#define BATADV_TP_MAX_NUM_RECV 1
 
 /**
  * enum batadv_mesh_state - State of a soft interface
