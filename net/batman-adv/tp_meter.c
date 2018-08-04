@@ -32,7 +32,6 @@
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/kref.h>
-#include <linux/kthread.h>
 #include <linux/list.h>
 #include <linux/netdevice.h>
 #include <linux/param.h>
@@ -96,6 +95,9 @@
 			sizeof(struct batadv_unicast_packet))
 
 static u8 batadv_tp_prerandom[4096] __read_mostly;
+
+/* ordered work queue */
+static struct workqueue_struct *batadv_tp_meter_queue;
 
 /**
  * batadv_tp_session_cookie() - generate session cookie based on session ids
@@ -808,18 +810,21 @@ static int batadv_tp_wait_available(struct batadv_tp_vars *tp_vars, size_t plen)
 
 /**
  * batadv_tp_send() - main sending thread of a tp meter session
- * @arg: address of the related tp_vars
+ * @work: delayed work reference of the related tp_vars
  *
  * Return: nothing, this function never returns
  */
-static int batadv_tp_send(void *arg)
+static void batadv_tp_send(struct work_struct *work)
 {
-	struct batadv_tp_vars *tp_vars = arg;
-	struct batadv_priv *bat_priv = tp_vars->bat_priv;
 	struct batadv_hard_iface *primary_if = NULL;
 	struct batadv_orig_node *orig_node = NULL;
+	struct batadv_tp_vars *tp_vars;
 	size_t payload_len, packet_len;
+	struct batadv_priv *bat_priv;
 	int err = 0;
+
+	tp_vars = container_of(work, struct batadv_tp_vars, test_work);
+	bat_priv = tp_vars->bat_priv;
 
 	if (unlikely(tp_vars->role != BATADV_TP_SENDER)) {
 		err = BATADV_TP_REASON_DST_UNREACHABLE;
@@ -901,40 +906,17 @@ out:
 	batadv_tp_sender_cleanup(bat_priv, tp_vars);
 
 	batadv_tp_vars_put(tp_vars);
-
-	do_exit(0);
 }
 
 /**
- * batadv_tp_start_kthread() - start new thread which manages the tp meter
- *  sender
+ * batadv_tp_start_work - start new thread which manages the tp meter sender
  * @tp_vars: the private data of the current TP meter session
  */
-static void batadv_tp_start_kthread(struct batadv_tp_vars *tp_vars)
+static void batadv_tp_start_work(struct batadv_tp_vars *tp_vars)
 {
-	struct task_struct *kthread;
-	struct batadv_priv *bat_priv = tp_vars->bat_priv;
-	u32 session_cookie;
-
-	kref_get(&tp_vars->refcount);
-	kthread = kthread_create(batadv_tp_send, tp_vars, "kbatadv_tp_meter");
-	if (IS_ERR(kthread)) {
-		session_cookie = batadv_tp_session_cookie(tp_vars->session,
-							  tp_vars->icmp_uid);
-		pr_err("batadv: cannot create tp meter kthread\n");
-		batadv_tp_batctl_error_notify(BATADV_TP_REASON_MEMORY_ERROR,
-					      tp_vars->other_end,
-					      bat_priv, session_cookie);
-
-		/* drop reserved reference for kthread */
-		batadv_tp_vars_put(tp_vars);
-
-		/* cleanup of failed tp meter variables */
-		batadv_tp_sender_cleanup(bat_priv, tp_vars);
-		return;
-	}
-
-	wake_up_process(kthread);
+	/* init work item that will actually execute the test and schedule it */
+	INIT_WORK(&tp_vars->test_work, batadv_tp_send);
+	queue_work(batadv_tp_meter_queue, &tp_vars->test_work);
 }
 
 /**
@@ -1053,13 +1035,10 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	/* init work item for finished tp tests */
 	INIT_DELAYED_WORK(&tp_vars->finish_work, batadv_tp_sender_finish);
 
-	/* start tp kthread. This way the write() call issued from userspace can
-	 * happily return and avoid to block
+	/* schedule the tp worker. This way the write() call issued from
+	 * userspace can happily return and avoid to block
 	 */
-	batadv_tp_start_kthread(tp_vars);
-
-	/* don't return reference to new tp_vars */
-	batadv_tp_vars_put(tp_vars);
+	batadv_tp_start_work(tp_vars);
 }
 
 /**
@@ -1498,8 +1477,26 @@ void batadv_tp_meter_recv(struct batadv_priv *bat_priv, struct sk_buff *skb)
 
 /**
  * batadv_tp_meter_init() - initialize global tp_meter structures
+ *
+ * Return: 0 on success, -ENOMEM if the tp_meter queue allocation fails
  */
-void __init batadv_tp_meter_init(void)
+int __init batadv_tp_meter_init(void)
 {
 	get_random_bytes(batadv_tp_prerandom, sizeof(batadv_tp_prerandom));
+
+	batadv_tp_meter_queue = alloc_ordered_workqueue("bat_tp_meter", 0);
+	if (!batadv_tp_meter_queue)
+		return -ENOMEM;
+
+	return 0;
+}
+
+/**
+ * batadv_tp_meter_destroy() - destroy tp meter memory allocations
+ */
+void batadv_tp_meter_destroy(void)
+{
+	flush_workqueue(batadv_tp_meter_queue);
+	destroy_workqueue(batadv_tp_meter_queue);
+	batadv_tp_meter_queue = NULL;
 }

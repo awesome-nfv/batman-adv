@@ -91,6 +91,10 @@ static int __init batadv_init(void)
 	if (ret < 0)
 		return ret;
 
+	ret = batadv_tp_meter_init();
+	if (ret < 0)
+		goto err_tp_meter;
+
 	INIT_LIST_HEAD(&batadv_hardif_list);
 	batadv_algo_init();
 
@@ -99,7 +103,6 @@ static int __init batadv_init(void)
 	batadv_v_init();
 	batadv_iv_init();
 	batadv_nc_init();
-	batadv_tp_meter_init();
 
 	batadv_event_workqueue = create_singlethread_workqueue("bat_events");
 	if (!batadv_event_workqueue)
@@ -118,9 +121,11 @@ static int __init batadv_init(void)
 	return 0;
 
 err_create_wq:
+	batadv_tp_meter_destroy();
+err_tp_meter:
 	batadv_tt_cache_destroy();
 
-	return -ENOMEM;
+	return ret;
 }
 
 static void __exit batadv_exit(void)
@@ -138,6 +143,7 @@ static void __exit batadv_exit(void)
 	rcu_barrier();
 
 	batadv_tt_cache_destroy();
+	batadv_tp_meter_destroy();
 }
 
 /**

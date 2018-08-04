@@ -1355,6 +1355,9 @@ struct batadv_tp_vars {
 	/** @finish_work: work item for the finishing procedure */
 	struct delayed_work finish_work;
 
+	/** @test_work: work item for the test process */
+	struct work_struct test_work;
+
 	/** @test_length: test length in milliseconds */
 	u32 test_length;
 
