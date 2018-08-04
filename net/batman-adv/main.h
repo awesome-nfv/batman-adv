@@ -69,6 +69,7 @@
 #define BATADV_ELP_MIN_PROBE_SIZE 200 /* bytes */
 #define BATADV_ELP_PROBE_MAX_TX_DIFF 100 /* milliseconds */
 #define BATADV_ELP_MAX_AGE 64
+#define BATADV_ELP_TP_RUN_INTERVAL 60000 /* milliseconds */
 #define BATADV_OGM_MAX_ORIGDIFF 5
 #define BATADV_OGM_MAX_AGE 64
 

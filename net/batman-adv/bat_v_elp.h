@@ -21,6 +21,8 @@
 
 #include "main.h"
 
+#include <linux/types.h>
+
 struct sk_buff;
 struct work_struct;
 
@@ -32,5 +34,24 @@ void batadv_v_elp_primary_iface_set(struct batadv_hard_iface *primary_iface);
 int batadv_v_elp_packet_recv(struct sk_buff *skb,
 			     struct batadv_hard_iface *if_incoming);
 void batadv_v_elp_throughput_metric_update(struct work_struct *work);
+
+#ifdef CONFIG_BATMAN_ADV_BATMAN_V
+
+void batadv_v_elp_tp_fail(struct batadv_hardif_neigh_node *neigh);
+void batadv_v_elp_tp_finish(struct batadv_hardif_neigh_node *neigh,
+			    u32 throughput);
+
+#else
+
+static inline void batadv_v_elp_tp_fail(struct batadv_hardif_neigh_node *neigh)
+{
+}
+
+static inline void
+batadv_v_elp_tp_finish(struct batadv_hardif_neigh_node *neigh, u32 throughput)
+{
+}
+
+#endif /* CONFIG_BATMAN_ADV_BATMAN_V */
 
 #endif /* _NET_BATMAN_ADV_BAT_V_ELP_H_ */

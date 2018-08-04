@@ -584,6 +584,20 @@ struct batadv_hardif_neigh_node_bat_v {
 
 	/** @metric_work: work queue callback item for metric update */
 	struct work_struct metric_work;
+
+	/**
+	 * @tp_meter_running: tp meter measurements towards this neighbor in
+	 * progress
+	 */
+	unsigned char tp_meter_running:1;
+
+	/**
+	 * @last_tp_meter_run: timestamp of last tp meter measurement completion
+	 */
+	unsigned long last_tp_meter_run;
+
+	/** @tp_meter_throughput: throughput information measured by tp meter */
+	unsigned long tp_meter_throughput;
 };
 
 /**

@@ -51,6 +51,7 @@
 #include "originator.h"
 #include "routing.h"
 #include "send.h"
+#include "tp_meter.h"
 
 /**
  * batadv_v_elp_start_timer() - restart timer for ELP periodic work
@@ -65,6 +66,42 @@ static void batadv_v_elp_start_timer(struct batadv_hard_iface *hard_iface)
 
 	queue_delayed_work(batadv_event_workqueue, &hard_iface->bat_v.elp_wq,
 			   msecs_to_jiffies(msecs));
+}
+
+/**
+ * batadv_v_elp_tp_start() - start a tp meter session for a neighbor
+ * @neigh: neighbor to run tp meter on
+ */
+static void batadv_v_elp_tp_start(struct batadv_hardif_neigh_node *neigh)
+{
+	struct batadv_hard_iface *hard_iface = neigh->if_incoming;
+	struct batadv_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
+
+	neigh->bat_v.tp_meter_running = true;
+	batadv_tp_start(bat_priv, neigh->addr, neigh,
+			1000, NULL, BATADV_TP_ELP);
+}
+
+/**
+ * batadv_v_elp_tp_fail() - handle tp meter session failure
+ * @neigh: neighbor to run tp meter on
+ */
+void batadv_v_elp_tp_fail(struct batadv_hardif_neigh_node *neigh)
+{
+	neigh->bat_v.tp_meter_running = false;
+}
+
+/**
+ * batadv_v_elp_tp_finish() - post-process tp meter results
+ * @neigh: neighbor tp meter on
+ * @throughput: tp meter throughput result
+ */
+void batadv_v_elp_tp_finish(struct batadv_hardif_neigh_node *neigh,
+			    u32 throughput)
+{
+	neigh->bat_v.tp_meter_throughput = throughput;
+	neigh->bat_v.last_tp_meter_run = jiffies;
+	neigh->bat_v.tp_meter_running = false;
 }
 
 /**
@@ -112,10 +149,13 @@ static u32 batadv_v_elp_get_throughput(struct batadv_hardif_neigh_node *neigh)
 			 */
 			return 0;
 		}
+
+		/* unsupported WiFi driver */
 		if (ret)
-			goto default_throughput;
+			goto fallback_throughput;
+
 		if (!(sinfo.filled & BIT(NL80211_STA_INFO_EXPECTED_THROUGHPUT)))
-			goto default_throughput;
+			goto fallback_throughput;
 
 		return sinfo.expected_throughput / 100;
 	}
@@ -151,6 +191,29 @@ static u32 batadv_v_elp_get_throughput(struct batadv_hardif_neigh_node *neigh)
 		if (throughput && throughput != SPEED_UNKNOWN)
 			return throughput * 10;
 	}
+
+fallback_throughput:
+	/* check the tp_meter_running flag before checking the timestamp to
+	 * avoid a race condition where a new tp meter session is scheduled
+	 * right after the previous tp meter session has completed.
+	 *
+	 * No lock is required because this is the only point where
+	 * batadv_v_elp_tp_start() is invoked and we get here only through a
+	 * periodic timer. This means we will never run this function
+	 * concurrently with itself.
+	 */
+	if (!neigh->bat_v.tp_meter_running &&
+	    batadv_has_timed_out(neigh->bat_v.last_tp_meter_run,
+				 BATADV_ELP_TP_RUN_INTERVAL))
+		batadv_v_elp_tp_start(neigh);
+
+	/* discard too old tp test results */
+	if (batadv_has_timed_out(neigh->bat_v.last_tp_meter_run,
+				 2 * BATADV_ELP_TP_RUN_INTERVAL))
+		neigh->bat_v.tp_meter_throughput = 0;
+
+	if (neigh->bat_v.tp_meter_throughput)
+		return neigh->bat_v.tp_meter_throughput;
 
 default_throughput:
 	if (!(hard_iface->bat_v.flags & BATADV_WARNING_DEFAULT)) {

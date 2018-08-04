@@ -24,7 +24,7 @@
 #include <linux/byteorder/generic.h>
 #include <linux/cache.h>
 #include <linux/compiler.h>
-#include <linux/err.h>
+#include <linux/errno.h>
 #include <linux/etherdevice.h>
 #include <linux/gfp.h>
 #include <linux/if_ether.h>
@@ -33,9 +33,9 @@
 #include <linux/kernel.h>
 #include <linux/kref.h>
 #include <linux/list.h>
+#include <linux/log2.h>
 #include <linux/netdevice.h>
 #include <linux/param.h>
-#include <linux/printk.h>
 #include <linux/random.h>
 #include <linux/rculist.h>
 #include <linux/rcupdate.h>
@@ -51,6 +51,7 @@
 #include <uapi/linux/batadv_packet.h>
 #include <uapi/linux/batman_adv.h>
 
+#include "bat_v_elp.h"
 #include "hard-interface.h"
 #include "log.h"
 #include "netlink.h"
@@ -224,7 +225,7 @@ static void batadv_tp_caller_notify(struct batadv_priv *bat_priv,
 				    struct batadv_tp_vars *tp_vars,
 				    enum batadv_tp_meter_reason reason)
 {
-	u32 total_bytes;
+	u64 total_bytes;
 	u32 test_time;
 	u32 cookie;
 	bool reason_is_error;
@@ -251,6 +252,26 @@ static void batadv_tp_caller_notify(struct batadv_priv *bat_priv,
 
 		break;
 	case BATADV_TP_ELP:
+		if (reason_is_error) {
+			batadv_v_elp_tp_fail(tp_vars->hardif_neigh);
+			return;
+		}
+
+		test_time = jiffies_to_msecs(jiffies - tp_vars->start_time);
+		if (!test_time) {
+			batadv_v_elp_tp_fail(tp_vars->hardif_neigh);
+			return;
+		}
+
+		total_bytes = atomic64_read(&tp_vars->tot_sent);
+
+		/* The following calculation includes these steps:
+		 * - divide bytes by the test length (msecs)
+		 * - convert result from bits/ms to 0.1Mb/s (1Mb/s==1000000b/s)
+		 */
+		total_bytes = atomic64_read(&tp_vars->tot_sent);
+		do_div(total_bytes, test_time * 125);
+		batadv_v_elp_tp_finish(tp_vars->hardif_neigh, total_bytes);
 		break;
 	default:
 		break;
@@ -264,11 +285,14 @@ static void batadv_tp_caller_notify(struct batadv_priv *bat_priv,
  * @reason: reason for tp meter session stop
  * @dst: destination of tp_meter session
  * @cookie: cookie of tp_meter session
+ * @hardif_neigh: neighbor towards which the test was ran (for one-hop test)
  */
-static void batadv_tp_caller_init_error(struct batadv_priv *bat_priv,
-					enum batadv_tp_meter_caller caller,
-					enum batadv_tp_meter_reason reason,
-					const u8 *dst, u32 cookie)
+static void
+batadv_tp_caller_init_error(struct batadv_priv *bat_priv,
+			    enum batadv_tp_meter_caller caller,
+			    enum batadv_tp_meter_reason reason, const u8 *dst,
+			    u32 cookie,
+			    struct batadv_hardif_neigh_node *hardif_neigh)
 {
 	switch (caller) {
 	case BATADV_TP_USERSPACE:
@@ -276,6 +300,7 @@ static void batadv_tp_caller_init_error(struct batadv_priv *bat_priv,
 					      cookie);
 		break;
 	case BATADV_TP_ELP:
+		batadv_v_elp_tp_fail(hardif_neigh);
 		break;
 	default:
 		break;
@@ -981,7 +1006,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 			   "Meter: too many ongoing sessions, aborting (SEND)\n");
 		batadv_tp_caller_init_error(bat_priv, caller,
 					    BATADV_TP_REASON_TOO_MANY, dst,
-					    session_cookie);
+					    session_cookie, neigh);
 		return;
 	}
 
@@ -989,7 +1014,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	if (!tp_vars) {
 		batadv_tp_caller_init_error(bat_priv, caller,
 					    BATADV_TP_REASON_MEMORY_ERROR, dst,
-					    session_cookie);
+					    session_cookie, neigh);
 		return;
 	}
 
