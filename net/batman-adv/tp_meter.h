@@ -28,7 +28,8 @@ struct sk_buff;
 int batadv_tp_meter_init(void);
 void batadv_tp_meter_destroy(void);
 void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
-		     u32 test_length, u32 *cookie);
+		     u32 test_length, u32 *cookie,
+		     enum batadv_tp_meter_caller caller);
 void batadv_tp_stop(struct batadv_priv *bat_priv, const u8 *dst,
 		    u8 return_value);
 void batadv_tp_meter_recv(struct batadv_priv *bat_priv, struct sk_buff *skb);

@@ -215,50 +215,71 @@ static void batadv_tp_update_rto(struct batadv_tp_vars *tp_vars,
 }
 
 /**
- * batadv_tp_batctl_notify() - send client status result to client
- * @reason: reason for tp meter session stop
- * @dst: destination of tp_meter session
+ * batadv_tp_caller_notify() - send tp meter status result to caller
  * @bat_priv: the bat priv with all the soft interface information
- * @start_time: start of transmission in jiffies
- * @total_sent: bytes acked to the receiver
- * @cookie: cookie of tp_meter session
+ * @tp_vars: the private data of the current TP meter session
+ * @reason: reason for tp meter session stop
  */
-static void batadv_tp_batctl_notify(enum batadv_tp_meter_reason reason,
-				    const u8 *dst, struct batadv_priv *bat_priv,
-				    unsigned long start_time, u64 total_sent,
-				    u32 cookie)
+static void batadv_tp_caller_notify(struct batadv_priv *bat_priv,
+				    struct batadv_tp_vars *tp_vars,
+				    enum batadv_tp_meter_reason reason)
 {
-	u32 test_time;
-	u8 result;
 	u32 total_bytes;
+	u32 test_time;
+	u32 cookie;
+	bool reason_is_error;
 
-	if (!batadv_tp_is_error(reason)) {
-		result = BATADV_TP_REASON_COMPLETE;
-		test_time = jiffies_to_msecs(jiffies - start_time);
-		total_bytes = total_sent;
-	} else {
-		result = reason;
-		test_time = 0;
-		total_bytes = 0;
+	reason_is_error = batadv_tp_is_error(reason);
+
+	switch (tp_vars->caller) {
+	case BATADV_TP_USERSPACE:
+		cookie = batadv_tp_session_cookie(tp_vars->session,
+						  tp_vars->icmp_uid);
+
+		if (reason_is_error) {
+			batadv_netlink_tpmeter_notify(bat_priv,
+						      tp_vars->other_end,
+						      reason, 0, 0, cookie);
+			return;
+		}
+
+		test_time = jiffies_to_msecs(jiffies - tp_vars->start_time);
+		total_bytes = atomic64_read(&tp_vars->tot_sent);
+		batadv_netlink_tpmeter_notify(bat_priv, tp_vars->other_end,
+					      BATADV_TP_REASON_COMPLETE,
+					      test_time, total_bytes, cookie);
+
+		break;
+	case BATADV_TP_ELP:
+		break;
+	default:
+		break;
 	}
-
-	batadv_netlink_tpmeter_notify(bat_priv, dst, result, test_time,
-				      total_bytes, cookie);
 }
 
 /**
- * batadv_tp_batctl_error_notify() - send client error result to client
+ * batadv_tp_caller_init_error() - report early tp meter errors to caller
+ * @bat_priv: the bat priv with all the soft interface information
+ * @caller: caller of tp meter session (user space or ELP)
  * @reason: reason for tp meter session stop
  * @dst: destination of tp_meter session
- * @bat_priv: the bat priv with all the soft interface information
  * @cookie: cookie of tp_meter session
  */
-static void batadv_tp_batctl_error_notify(enum batadv_tp_meter_reason reason,
-					  const u8 *dst,
-					  struct batadv_priv *bat_priv,
-					  u32 cookie)
+static void batadv_tp_caller_init_error(struct batadv_priv *bat_priv,
+					enum batadv_tp_meter_caller caller,
+					enum batadv_tp_meter_reason reason,
+					const u8 *dst, u32 cookie)
 {
-	batadv_tp_batctl_notify(reason, dst, bat_priv, 0, 0, cookie);
+	switch (caller) {
+	case BATADV_TP_USERSPACE:
+		batadv_netlink_tpmeter_notify(bat_priv, dst, reason, 0, 0,
+					      cookie);
+		break;
+	case BATADV_TP_ELP:
+		break;
+	default:
+		break;
+	}
 }
 
 /**
@@ -411,8 +432,6 @@ static void batadv_tp_sender_cleanup(struct batadv_priv *bat_priv,
 static void batadv_tp_sender_end(struct batadv_priv *bat_priv,
 				 struct batadv_tp_vars *tp_vars)
 {
-	u32 session_cookie;
-
 	batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 		   "Test towards %pM finished..shutting down (reason=%d)\n",
 		   tp_vars->other_end, tp_vars->reason);
@@ -425,15 +444,7 @@ static void batadv_tp_sender_end(struct batadv_priv *bat_priv,
 		   "Final values: cwnd=%u ss_threshold=%u\n",
 		   tp_vars->cwnd, tp_vars->ss_threshold);
 
-	session_cookie = batadv_tp_session_cookie(tp_vars->session,
-						  tp_vars->icmp_uid);
-
-	batadv_tp_batctl_notify(tp_vars->reason,
-				tp_vars->other_end,
-				bat_priv,
-				tp_vars->start_time,
-				atomic64_read(&tp_vars->tot_sent),
-				session_cookie);
+	batadv_tp_caller_notify(bat_priv, tp_vars, tp_vars->reason);
 }
 
 /**
@@ -925,9 +936,11 @@ static void batadv_tp_start_work(struct batadv_tp_vars *tp_vars)
  * @dst: the receiver MAC address
  * @test_length: test length in milliseconds
  * @cookie: session cookie
+ * @caller: caller of tp meter session (user space or ELP)
  */
 void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
-		     u32 test_length, u32 *cookie)
+		     u32 test_length, u32 *cookie,
+		     enum batadv_tp_meter_caller caller)
 {
 	struct batadv_tp_vars *tp_vars;
 	u8 session_id[2];
@@ -942,15 +955,17 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	if (!atomic_add_unless(&bat_priv->tp_num, 1, BATADV_TP_MAX_NUM_QUEUE)) {
 		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 			   "Meter: too many ongoing sessions, aborting (SEND)\n");
-		batadv_tp_batctl_error_notify(BATADV_TP_REASON_TOO_MANY, dst,
-					      bat_priv, session_cookie);
+		batadv_tp_caller_init_error(bat_priv, caller,
+					    BATADV_TP_REASON_TOO_MANY, dst,
+					    session_cookie);
 		return;
 	}
 
 	tp_vars = kmalloc(sizeof(*tp_vars), GFP_ATOMIC);
 	if (!tp_vars) {
-		batadv_tp_batctl_error_notify(BATADV_TP_REASON_MEMORY_ERROR,
-					      dst, bat_priv, session_cookie);
+		batadv_tp_caller_init_error(bat_priv, caller,
+					    BATADV_TP_REASON_MEMORY_ERROR, dst,
+					    session_cookie);
 		return;
 	}
 
@@ -958,6 +973,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	ether_addr_copy(tp_vars->other_end, dst);
 	kref_init(&tp_vars->refcount);
 	tp_vars->role = BATADV_TP_SENDER;
+	tp_vars->caller = caller;
 	atomic_set(&tp_vars->sending, 1);
 	memcpy(tp_vars->session, session_id, sizeof(session_id));
 	tp_vars->icmp_uid = icmp_uid;

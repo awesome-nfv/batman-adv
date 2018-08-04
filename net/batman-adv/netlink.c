@@ -378,7 +378,8 @@ batadv_netlink_tp_meter_start(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	bat_priv = netdev_priv(soft_iface);
-	batadv_tp_start(bat_priv, dst, test_length, &cookie);
+	batadv_tp_start(bat_priv, dst, test_length, &cookie,
+			BATADV_TP_USERSPACE);
 
 	ret = batadv_netlink_tp_meter_put(msg, cookie);
 

@@ -1325,6 +1325,16 @@ enum batadv_tp_meter_role {
 };
 
 /**
+ * enum batadv_tp_meter_caller - initiator of the tp meter session
+ * @BATADV_TP_USERSPACE: initiated by user space
+ * @BATADV_TP_ELP: initiated by ELP
+ */
+enum batadv_tp_meter_caller {
+	BATADV_TP_USERSPACE,
+	BATADV_TP_ELP
+};
+
+/**
  * struct batadv_tp_vars - tp meter private variables per session
  */
 struct batadv_tp_vars {
@@ -1345,6 +1355,9 @@ struct batadv_tp_vars {
 
 	/** @role: receiver/sender modi */
 	enum batadv_tp_meter_role role;
+
+	/** @caller: caller of tp meter session (user space or ELP) */
+	enum batadv_tp_meter_caller caller;
 
 	/** @sending: sending binary semaphore: 1 if sending, 0 is not */
 	atomic_t sending;
