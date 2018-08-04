@@ -6,6 +6,13 @@ Description:
                 Defines the interval in milliseconds in which batman
                 emits probing packets for neighbor sensing (ELP).
 
+What:           /sys/class/net/<iface>/batman-adv/elp_tp_duration
+Date:           May 2018
+Contact:        Marek Lindner <mareklindner@neomailbox.ch>
+Description:
+                Defines measurement duration in milliseconds upon
+                ELP fallback throughput meter measurements.
+
 What:           /sys/class/net/<iface>/batman-adv/iface_status
 Date:           May 2010
 Contact:        Marek Lindner <mareklindner@neomailbox.ch>

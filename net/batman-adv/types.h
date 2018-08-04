@@ -118,6 +118,9 @@ struct batadv_hard_iface_bat_v {
 	/** @elp_interval: time interval between two ELP transmissions */
 	atomic_t elp_interval;
 
+	/** @elp_tp_duration: throughput meter fallback test duration */
+	atomic_t elp_tp_duration;
+
 	/** @elp_seqno: current ELP sequence number */
 	atomic_t elp_seqno;
 

@@ -76,10 +76,12 @@ static void batadv_v_elp_tp_start(struct batadv_hardif_neigh_node *neigh)
 {
 	struct batadv_hard_iface *hard_iface = neigh->if_incoming;
 	struct batadv_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
+	u32 elp_tp_duration;
 
 	neigh->bat_v.tp_meter_running = true;
-	batadv_tp_start(bat_priv, neigh->addr, neigh,
-			1000, NULL, BATADV_TP_ELP);
+	elp_tp_duration = atomic_read(&hard_iface->bat_v.elp_tp_duration);
+	batadv_tp_start(bat_priv, neigh->addr, neigh, elp_tp_duration,
+			NULL, BATADV_TP_ELP);
 }
 
 /**

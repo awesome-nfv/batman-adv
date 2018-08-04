@@ -1086,6 +1086,7 @@ void batadv_v_hardif_init(struct batadv_hard_iface *hard_iface)
 	 */
 	atomic_set(&hard_iface->bat_v.throughput_override, 0);
 	atomic_set(&hard_iface->bat_v.elp_interval, 500);
+	atomic_set(&hard_iface->bat_v.elp_tp_duration, 1000);
 }
 
 /**
